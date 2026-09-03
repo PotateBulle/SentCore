@@ -19,9 +19,11 @@ bool JsonlWriter::ready() const noexcept
 void JsonlWriter::write_escaped(std::ostream& stream, std::string_view value)
 {
     stream << '"';
+
     for (const char raw_character : value)
     {
         const auto character = static_cast<unsigned char>(raw_character);
+
         switch (character)
         {
             case '"':
@@ -51,6 +53,7 @@ void JsonlWriter::write_escaped(std::ostream& stream, std::string_view value)
                 }
         }
     }
+
     stream << '"';
 }
 
@@ -59,13 +62,28 @@ void JsonlWriter::write_event(const Event& event)
     events_ << "{\"sequence\":" << event.sequence << ",\"timestamp_ns\":" << event.timestamp_ns
             << ",\"type\":";
     write_escaped(events_, to_string(event.type));
-    events_ << ",\"pid\":" << event.pid << ",\"ppid\":" << event.ppid << ",\"uid\":"
-            << event.uid << ",\"source\":";
-    write_escaped(events_, event.source.view());
-    events_ << ",\"path\":";
-    write_escaped(events_, event.path.view());
-    events_ << ",\"command\":";
-    write_escaped(events_, event.command.view());
+    events_ << ",\"source\":";
+    write_escaped(events_, to_string(event.source));
+
+    if (const auto* process = event.process(); process != nullptr)
+    {
+        events_ << ",\"pid\":" << process->pid << ",\"ppid\":" << process->ppid << ",\"uid\":"
+                << process->uid << ",\"executable\":";
+        write_escaped(events_, process->executable.view());
+        events_ << ",\"command\":";
+        write_escaped(events_, process->command.view());
+    }
+    else if (const auto* file = event.file(); file != nullptr)
+    {
+        events_ << ",\"uid\":" << file->uid << ",\"mode\":" << file->mode << ",\"path\":";
+        write_escaped(events_, file->path.view());
+    }
+    else if (const auto* internal = event.internal(); internal != nullptr)
+    {
+        events_ << ",\"message\":";
+        write_escaped(events_, internal->message.view());
+    }
+
     events_ << "}\n";
 }
 
@@ -79,11 +97,24 @@ void JsonlWriter::write_alert(const Alert& alert)
     write_escaped(alerts_, to_string(alert.severity));
     alerts_ << ",\"mitre\":";
     write_escaped(alerts_, alert.mitre_technique.view());
-    alerts_ << ",\"event_sequence\":" << alert.event.sequence << ",\"path\":";
-    write_escaped(alerts_, alert.event.path.view());
-    alerts_ << ",\"command\":";
-    write_escaped(alerts_, alert.event.command.view());
-    alerts_ << "}\n";
-}
+    alerts_ << ",\"event_sequence\":" << alert.event.sequence << ",\"type\":";
+    write_escaped(alerts_, to_string(alert.event.type));
+    alerts_ << ",\"source\":";
+    write_escaped(alerts_, to_string(alert.event.source));
 
-} // namespace sentcore
+    const auto path = alert.event.path_view();
+    if (!path.empty())
+    {
+        alerts_ << ",\"path\":";
+        write_escaped(alerts_, path);
+    }
+
+    const auto command = alert.event.command_view();
+    if (!command.empty())
+    {
+        alerts_ << ",\"command\":";
+        write_escaped(alerts_, command);
+    }
+
+    alerts_ << "}\n";
+}}

