@@ -5,7 +5,6 @@
     "minor": 25,
     "patch": 0
   },
-
   "configurePresets": [
     {
       "name": "debug",
@@ -18,7 +17,6 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
-
     {
       "name": "release",
       "displayName": "Release",
@@ -30,10 +28,9 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
-
     {
       "name": "sanitized",
-      "displayName": "Debug + Sanitizers",
+      "displayName": "Debug + ASan/UBSan",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/sanitized",
       "cacheVariables": {
@@ -44,19 +41,21 @@
       }
     }
   ],
-
   "buildPresets": [
+    { "name": "debug", "configurePreset": "debug" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "sanitized", "configurePreset": "sanitized" }
+  ],
+  "testPresets": [
     {
       "name": "debug",
-      "configurePreset": "debug"
-    },
-    {
-      "name": "release",
-      "configurePreset": "release"
+      "configurePreset": "debug",
+      "output": { "outputOnFailure": true }
     },
     {
       "name": "sanitized",
-      "configurePreset": "sanitized"
+      "configurePreset": "sanitized",
+      "output": { "outputOnFailure": true }
     }
   ]
 }
