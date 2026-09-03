@@ -1,13 +1,23 @@
 #pragma once
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <type_traits>
 
 #include <sentcore/core/fixed_string.hpp>
 
 namespace sentcore
 {
+
+// Deliberately bounded telemetry fields.
+//
+// These capacities are tuned for SentCore's hot-path event representation.
+// Oversized input is safely truncated by FixedString rather than allocating.
+inline constexpr std::size_t kEventSourceCapacity{16U};
+inline constexpr std::size_t kEventPathCapacity{256U};
+inline constexpr std::size_t kEventCommandCapacity{512U};
 
 enum class EventType : std::uint8_t
 {
@@ -30,17 +40,25 @@ enum class Severity : std::uint8_t
 
 struct Event final
 {
+    // Hot metadata is grouped first to keep alignment predictable.
     std::uint64_t sequence{0U};
     std::uint64_t timestamp_ns{0U};
+
     std::int32_t pid{-1};
     std::int32_t ppid{-1};
     std::uint32_t uid{0U};
     std::uint32_t mode{0U};
+
     EventType type{EventType::Internal};
-    FixedString<64> source{};
-    FixedString<384> path{};
-    FixedString<768> command{};
+
+    // Inline bounded strings avoid per-event heap allocation.
+    FixedString<kEventSourceCapacity> source{};
+    FixedString<kEventPathCapacity> path{};
+    FixedString<kEventCommandCapacity> command{};
 };
+
+static_assert(std::is_nothrow_move_constructible_v<Event>);
+static_assert(std::is_nothrow_move_assignable_v<Event>);
 
 [[nodiscard]] inline std::uint64_t now_unix_ns() noexcept
 {
