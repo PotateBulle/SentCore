@@ -13,31 +13,26 @@ namespace
            path.starts_with("/dev/shm/");
 }
 
-[[nodiscard]] bool is_file_event(EventType type) noexcept
-{
-    return type == EventType::FileCreated || type == EventType::FileModified ||
-           type == EventType::FileMoved;
-}
-
 } // namespace
 
 DetectionBatch DetectionEngine::evaluate(const Event& event) const noexcept
 {
     DetectionBatch batch{};
-    const auto path = event.path.view();
-    const auto command = event.command.view();
-
-    if (event.type == EventType::ProcessStart && starts_with_temp(path))
-    {
-        batch.add("SC-LNX-001",
-                  "Process executed from a temporary directory",
-                  Severity::High,
-                  "T1059",
-                  event);
-    }
 
     if (event.type == EventType::ProcessStart)
     {
+        const auto path = event.path_view();
+        const auto command = event.command_view();
+
+        if (starts_with_temp(path))
+        {
+            batch.add("SC-LNX-001",
+                      "Process executed from a temporary directory",
+                      Severity::High,
+                      "T1059",
+                      event);
+        }
+
         const bool downloader = command.find("curl ") != std::string_view::npos ||
                                 command.find("wget ") != std::string_view::npos;
         const bool shell_pipe = command.find("| sh") != std::string_view::npos ||
@@ -64,6 +59,7 @@ DetectionBatch DetectionEngine::evaluate(const Event& event) const noexcept
         const bool base64 = command.find("base64") != std::string_view::npos;
         const bool decode = command.find(" -d") != std::string_view::npos ||
                             command.find("--decode") != std::string_view::npos;
+
         if (base64 && decode)
         {
             batch.add("SC-LNX-004",
@@ -72,9 +68,18 @@ DetectionBatch DetectionEngine::evaluate(const Event& event) const noexcept
                       "T1140",
                       event);
         }
+
+        return batch;
     }
 
-    if (is_file_event(event.type) && path.starts_with("/etc/systemd/system/"))
+    if (!is_file_event(event.type))
+    {
+        return batch;
+    }
+
+    const auto path = event.path_view();
+
+    if (path.starts_with("/etc/systemd/system/"))
     {
         batch.add("SC-LNX-005",
                   "Systemd persistence path modified",
@@ -83,7 +88,7 @@ DetectionBatch DetectionEngine::evaluate(const Event& event) const noexcept
                   event);
     }
 
-    if (is_file_event(event.type) && path.ends_with("/.ssh/authorized_keys"))
+    if (path.ends_with("/.ssh/authorized_keys"))
     {
         batch.add("SC-LNX-006",
                   "SSH authorized_keys modified",
@@ -92,7 +97,7 @@ DetectionBatch DetectionEngine::evaluate(const Event& event) const noexcept
                   event);
     }
 
-    if (is_file_event(event.type) && starts_with_temp(path) && (event.mode & 0111U) != 0U)
+    if (starts_with_temp(path) && (event.mode() & 0111U) != 0U)
     {
         batch.add("SC-LNX-007",
                   "Executable file created in a temporary directory",
@@ -102,6 +107,4 @@ DetectionBatch DetectionEngine::evaluate(const Event& event) const noexcept
     }
 
     return batch;
-}
-
-} // namespace sentcore
+}}

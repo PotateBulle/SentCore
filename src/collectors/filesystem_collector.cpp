@@ -1,11 +1,11 @@
 #include <sentcore/collectors/filesystem_collector.hpp>
 
 #include <array>
-#include <cerrno>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 #include <poll.h>
 #include <sys/inotify.h>
@@ -26,14 +26,17 @@ constexpr std::uint32_t kWatchMask = IN_CREATE | IN_MODIFY | IN_CLOSE_WRITE | IN
     {
         return EventType::FileCreated;
     }
+
     if ((mask & (IN_MOVED_TO | IN_MOVED_FROM)) != 0U)
     {
         return EventType::FileMoved;
     }
+
     if ((mask & IN_DELETE) != 0U)
     {
         return EventType::FileDeleted;
     }
+
     return EventType::FileModified;
 }
 
@@ -42,10 +45,12 @@ constexpr std::uint32_t kWatchMask = IN_CREATE | IN_MODIFY | IN_CLOSE_WRITE | IN
     struct stat info
     {
     };
+
     if (::stat(path.c_str(), &info) != 0)
     {
         return 0U;
     }
+
     return static_cast<std::uint32_t>(info.st_mode);
 }
 
@@ -66,15 +71,18 @@ void FilesystemCollector::run(std::stop_token stop_token)
     }
 
     std::unordered_map<int, std::string> watches;
-    const auto add_watch = [&](const std::string& path) {
+    watches.reserve(8U);
+
+    const auto add_watch = [&](std::string path) {
         if (!std::filesystem::exists(path))
         {
             return;
         }
+
         const int watch = ::inotify_add_watch(descriptor, path.c_str(), kWatchMask);
         if (watch >= 0)
         {
-            watches.emplace(watch, path);
+            watches.emplace(watch, std::move(path));
         }
     };
 
@@ -90,6 +98,7 @@ void FilesystemCollector::run(std::stop_token stop_token)
     }
 
     alignas(inotify_event) std::array<char, 64U * 1024U> buffer{};
+
     struct pollfd poll_descriptor
     {
         descriptor, POLLIN, 0
@@ -111,6 +120,7 @@ void FilesystemCollector::run(std::stop_token stop_token)
 
         std::size_t offset{0U};
         const auto byte_count = static_cast<std::size_t>(bytes);
+
         while (offset < byte_count)
         {
             const auto* raw = buffer.data() + offset;
@@ -122,9 +132,11 @@ void FilesystemCollector::run(std::stop_token stop_token)
                 Event event{};
                 event.sequence = sequence_.fetch_add(1U, std::memory_order_relaxed);
                 event.timestamp_ns = now_unix_ns();
-                event.type = EventType::Internal;
-                event.source.assign("inotify");
-                event.command.assign("inotify queue overflow");
+                event.source = EventSource::Inotify;
+
+                auto& internal = event.emplace_internal();
+                internal.message.assign("inotify queue overflow");
+
                 static_cast<void>(queue_.try_push(std::move(event)));
                 continue;
             }
@@ -136,25 +148,26 @@ void FilesystemCollector::run(std::stop_token stop_token)
             }
 
             std::string path = watch->second;
+
             if (notification->len > 0U && notification->name[0] != '\0')
             {
-                path += '/';
-                path += notification->name;
+                path.push_back('/');
+                path.append(notification->name);
             }
 
             Event event{};
             event.sequence = sequence_.fetch_add(1U, std::memory_order_relaxed);
             event.timestamp_ns = now_unix_ns();
-            event.type = map_event_type(notification->mask);
-            event.uid = static_cast<std::uint32_t>(::getuid());
-            event.mode = read_mode(path);
-            event.source.assign("inotify");
-            event.path.assign(path);
+            event.source = EventSource::Inotify;
+
+            auto& file = event.emplace_file(map_event_type(notification->mask));
+            file.uid = static_cast<std::uint32_t>(::getuid());
+            file.mode = read_mode(path);
+            file.path.assign(path);
+
             static_cast<void>(queue_.try_push(std::move(event)));
         }
     }
 
     ::close(descriptor);
-}
-
-} // namespace sentcore
+}}
